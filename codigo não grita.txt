@@ -1,0 +1,90 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <UrlEncode.h>
+
+const char* ssid = "LABREDES"; 
+const char* password = "engsoftware";
+
+String phoneNumber = "554291541971"; 
+String apiKey = "8262597";             
+
+#define PIR_PIN 27
+volatile bool movimentoDetectado = false;
+
+void IRAM_ATTR detectaMovimento() {
+  movimentoDetectado = true;
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  pinMode(PIR_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(PIR_PIN), detectaMovimento, RISING);
+
+  conectarWiFi();
+}
+
+void conectarWiFi() {
+  Serial.print("Conectando ao Wi-Fi");
+  WiFi.begin(ssid, password);
+  int tentativas = 0;
+  
+  while (WiFi.status() != WL_CONNECTED && tentativas < 20) {
+    delay(500);
+    Serial.print(".");
+    tentativas++;
+  }
+
+  if(WiFi.status() == WL_CONNECTED){
+    Serial.println("\n✅ Wi-Fi Conectado!");
+  } else {
+    Serial.println("\n❌ Erro no Wi-Fi. Verifique a rede!");
+  }
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("⚠️ Wi-Fi desconectado! Tentando reconectar...");
+    conectarWiFi();
+  }
+
+  if (movimentoDetectado) {
+    Serial.println("🚨 Movimento detectado! Mandando o zap...");
+    
+    detachInterrupt(digitalPinToInterrupt(PIR_PIN));
+
+    if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http;
+      
+      String mensagem = "🚨 ALERTA: Movimento detectado pelo NÃO GRITA!";
+      String url = "http://api.callmebot.com/whatsapp.php?phone=" + phoneNumber + "&text=" + urlEncode(mensagem) + "&apikey=" + apiKey;
+  
+      http.begin(url);
+      int httpResponseCode = http.GET();
+      
+      if (httpResponseCode == 200 || httpResponseCode == 201) {
+        Serial.println("✅ Zap enviado com sucesso!");
+      } else if (httpResponseCode == 503) {
+        Serial.println("❌ Erro 503: Servidor do CallMeBot está fora do ar ou sobrecarregado.");
+      } else {
+        Serial.print("❌ Erro no envio. Código: ");
+        Serial.println(httpResponseCode);
+        if (httpResponseCode == 210 || httpResponseCode == 401) {
+          Serial.println("👉 Verifique se sua API Key ou o número de telefone estão corretos.");
+        }
+      }
+      http.end();
+    }
+
+    Serial.println("Aguardando 50 segundos para evitar SPAM no WhatsApp...");
+    delay(50000); 
+
+    while (digitalRead(PIR_PIN) == HIGH) {
+      delay(100);
+    }
+
+    movimentoDetectado = false;
+    attachInterrupt(digitalPinToInterrupt(PIR_PIN), detectaMovimento, RISING);
+    Serial.println("Sistema pronto de novo.");
+  }
+}
